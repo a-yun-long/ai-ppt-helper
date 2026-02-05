@@ -4,15 +4,15 @@ import re
 from typing import List, Dict, Any
 
 import streamlit as st
-from pptx import Presentation  # 必须先安装：pip install python-pptx
-from openai import OpenAI  # 必须先安装：pip install openai
+from pptx import Presentation  # 处理 PPT
+import pdfplumber              # 处理 PDF (记得 pip install pdfplumber)
+from openai import OpenAI      # 处理 AI
 
 # ==========================================
 # 🔧 配置区域
 # ==========================================
 
 # ⚠️ 必须修改：在这里填入你的真实 Key
-# 如果是在 GitHub 部署，请去网页 Secrets 填；如果是本地运行，直接填在下面 else 里
 try:
     DEEPSEEK_API_KEY = st.secrets["DEEPSEEK_API_KEY"]
 except:
@@ -24,7 +24,7 @@ except:
 BASE_URL = "https://api.deepseek.com" 
 
 # ==========================================
-# 1. 核心工具函数区
+# 1. 核心工具函数区 (新增了 PDF 处理)
 # ==========================================
 
 def extract_text_from_pptx(uploaded_file):
@@ -41,13 +41,26 @@ def extract_text_from_pptx(uploaded_file):
         st.error(f"解析PPT失败: {e}")
         return ""
 
+def extract_text_from_pdf(uploaded_file):
+    """从上传的PDF文件中提取所有文本 (新功能)"""
+    try:
+        text_content = []
+        with pdfplumber.open(uploaded_file) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text()
+                if text:
+                    text_content.append(text)
+        return "\n".join(text_content)
+    except Exception as e:
+        st.error(f"解析PDF失败: {e}")
+        return ""
+
 def normalize_text(s: str) -> str:
     s = s.strip()
     s = re.sub(r"\s+", " ", s)
     return s
 
 def simple_keywords(text: str, topn: int = 6) -> List[str]:
-    # 简单的关键词提取，用于本地评分逻辑
     candidates = re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z]{3,}", text)
     freq = {}
     for c in candidates:
@@ -59,7 +72,6 @@ def simple_keywords(text: str, topn: int = 6) -> List[str]:
 # 2. 真正的 AI 生成逻辑 (DeepSeek)
 # ==========================================
 
-# 加上这个装饰器，防止页面刷新时重复扣钱
 @st.cache_data(show_spinner=False)
 def call_deepseek_generate(content: str, difficulty: str, style: str) -> Dict[str, Any]:
     """
@@ -128,7 +140,6 @@ def call_deepseek_generate(content: str, difficulty: str, style: str) -> Dict[st
         return json.loads(result_json)
 
     except Exception as e:
-        print(f"DeepSeek API Error: {e}")
         return {"mcq": [], "short": [], "triple": [], "script_1min": {}, "error": str(e)}
 
 # ==========================================
@@ -173,7 +184,7 @@ def merge_wrong(old: List[Dict[str, Any]], new: List[Dict[str, Any]]) -> List[Di
 # 4. 页面 UI 主程序
 # ==========================================
 
-st.set_page_config(page_title="AI PPT学习小助手", layout="wide")
+st.set_page_config(page_title="AI PPT/PDF 学习小助手", layout="wide")
 
 # 初始化 Session State
 if "generated" not in st.session_state:
@@ -186,11 +197,11 @@ if "short_grades" not in st.session_state:
     st.session_state.short_grades = {}
 if "ppt_content" not in st.session_state:
     st.session_state.ppt_content = ""
-if "messages" not in st.session_state: # 聊天记录初始化
+if "messages" not in st.session_state:
     st.session_state.messages = []
 
-st.title("AI PPT学习小助手（出题 → 纠错 → 个性化再出题）")
-st.caption("基于 DeepSeek-V3 模型 | 支持 PPT 提取 | 智能答疑")
+st.title("AI 学习小助手 (支持 PPT & PDF)")
+st.caption("基于 DeepSeek-V3 模型 | 智能出题 | 答疑解惑")
 
 # 侧边栏
 with st.sidebar:
@@ -219,15 +230,24 @@ col1, col2 = st.columns([1, 1.2], gap="large")
 with col1:
     st.subheader("① 输入课程内容")
     
-    # 上传按钮
-    uploaded_file = st.file_uploader("上传 PPT 课件 (自动提取文字)", type=["pptx"])
+    # === 更新点：支持 PPTX 和 PDF ===
+    uploaded_file = st.file_uploader("上传课件 (支持 PPTX / PDF)", type=["pptx", "pdf"])
     
     # 提取逻辑
     if uploaded_file:
-        ppt_text = extract_text_from_pptx(uploaded_file)
-        if ppt_text:
-            st.info(f"成功提取了 {len(ppt_text)} 个字！")
-            st.session_state.ppt_content = ppt_text
+        file_type = uploaded_file.name.split('.')[-1].lower()
+        extracted_text = ""
+        
+        if file_type == "pptx":
+            extracted_text = extract_text_from_pptx(uploaded_file)
+        elif file_type == "pdf":
+            extracted_text = extract_text_from_pdf(uploaded_file)
+            
+        if extracted_text:
+            st.info(f"成功提取了 {len(extracted_text)} 个字！({file_type.upper()})")
+            st.session_state.ppt_content = extracted_text
+        else:
+            st.warning("未能从文件中提取到文字，请检查文件是否为纯图片格式。")
 
     # 获取当前要显示的文字
     default_text = st.session_state.get('ppt_content', "")
@@ -237,7 +257,7 @@ with col1:
         "或者直接粘贴文本", 
         height=260, 
         value=default_text,
-        placeholder="粘贴文本，或者上传上方的 PPT..."
+        placeholder="粘贴文本，或者上传上方的课件..."
     )
     
     gen_btn = st.button("一键生成题库 + 讲解稿", type="primary", use_container_width=True)
@@ -272,7 +292,6 @@ with col2:
     elif "error" in g:
         st.error(f"API 调用出错：{g['error']}")
     else:
-        # 增加了一个 Tab：💬 答疑助手
         tab_mcq, tab_sa, tab_triple, tab_script, tab_wrong, tab_chat = st.tabs(
             ["选择题", "简答题", "三层题组", "讲解稿", "错题本", "💬 答疑助手"]
         )
@@ -348,7 +367,7 @@ with col2:
             for sec in s.get("sections", []):
                 st.write(f"**[{sec['t']}]** {sec['line']}")
 
-        # ===== 5. 错题本 (已修复) =====
+        # ===== 5. 错题本 =====
         with tab_wrong:
             wb = st.session_state.wrongbook
             if not wb:
@@ -364,15 +383,12 @@ with col2:
                         st.rerun()
                     st.divider()
 
-                # === 修复点：这里原来调用了不存在的 local_generate，现已改为 call_deepseek_generate ===
                 if st.button("针对错题生成变式训练", type="primary"):
                     if not content.strip():
                         st.warning("请先在左侧输入原文。")
                     else:
                         with st.spinner("AI 正在分析你的错题并重新出题..."):
-                            # 重新调用 AI
                             new_gen = call_deepseek_generate(normalize_text(content), difficulty, style)
-                            # 只保留少量题目作为训练
                             new_gen["mcq"] = new_gen["mcq"][:3]
                             new_gen["short"] = new_gen["short"][:2]
                             st.session_state.generated = new_gen
@@ -380,31 +396,23 @@ with col2:
                             st.success("变式题已生成！请回到‘选择题’标签页查看。")
                             st.rerun()
 
-        # ===== 6. 答疑助手 (新功能) =====
+        # ===== 6. 答疑助手 =====
         with tab_chat:
             st.markdown("### 🤖 课件答疑助手")
-            
-            # 显示历史
             for msg in st.session_state.messages:
                 with st.chat_message(msg["role"]):
                     st.write(msg["content"])
-
-            # 输入框
             if q := st.chat_input("关于课件内容，你有什么不懂的？"):
-                # 显示用户问题
                 st.session_state.messages.append({"role": "user", "content": q})
                 with st.chat_message("user"):
                     st.write(q)
-
-                # AI 回答
                 with st.chat_message("assistant"):
                     with st.spinner("思考中..."):
                         try:
                             client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=BASE_URL)
-                            # 简单的 RAG：把课件内容塞进 prompt
                             context = st.session_state.get('ppt_content', '')[:5000]
                             resp = client.chat.completions.create(
-                                model="deepseek-chat",
+                                model="deepseek-chat", # SiliconFlow 记得改名
                                 messages=[
                                     {"role": "system", "content": f"你是一个助教。基于以下课件内容回答学生问题：\n\n{context}"},
                                     {"role": "user", "content": q}

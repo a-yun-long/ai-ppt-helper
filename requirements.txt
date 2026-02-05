@@ -1,3 +1,4 @@
 streamlit
 openai
 python-pptx
+pdfplumber   <-- 加上这行
