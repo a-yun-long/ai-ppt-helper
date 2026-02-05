@@ -12,19 +12,18 @@ from openai import OpenAI      # 处理 AI
 # 🔧 配置区域
 # ==========================================
 
-# ⚠️ 必须修改：在这里填入你的真实 Key
 try:
     DEEPSEEK_API_KEY = st.secrets["DEEPSEEK_API_KEY"]
 except:
     # ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-    DEEPSEEK_API_KEY = "sk-在这里填入你的真实Key" 
+    DEEPSEEK_API_KEY = "sk-休想看到" 
     # ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
 
 # 如果用 SiliconFlow，改成 "https://api.siliconflow.cn/v1"
 BASE_URL = "https://api.deepseek.com" 
 
 # ==========================================
-# 1. 核心工具函数区 (新增了 PDF 处理)
+# 1. 核心工具函数区 (新增 PDF 处理)
 # ==========================================
 
 def extract_text_from_pptx(uploaded_file):
@@ -69,7 +68,7 @@ def simple_keywords(text: str, topn: int = 6) -> List[str]:
     return [w for w, _ in items[:topn]]
 
 # ==========================================
-# 2. 真正的 AI 生成逻辑 (DeepSeek)
+# 2. 真正的 AI 生成逻辑 (DeepSeek)我们的大脑
 # ==========================================
 
 @st.cache_data(show_spinner=False)
@@ -422,4 +421,5 @@ with col2:
                             st.write(reply)
                             st.session_state.messages.append({"role": "assistant", "content": reply})
                         except Exception as e:
+
                             st.error(str(e))
